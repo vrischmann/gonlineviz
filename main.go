@@ -8,6 +8,9 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
+
+	"golang.org/x/tools/go/vcs"
 
 	"github.com/hirokidaichi/goviz/dotwriter"
 	"github.com/hirokidaichi/goviz/goimport"
@@ -34,6 +37,55 @@ var (
 	rl = ratelimit.NewBucketWithRate(10, 10)
 )
 
+func downloadPackage(importPath string) error {
+	vcs.ShowCmd = true
+
+	root, err := vcs.RepoRootForImportPath(importPath, true)
+	if err != nil {
+		return errors.Wrap(err, "repo root for import path")
+	}
+	if root != nil && (root.Root == "" || root.Repo == "") {
+		return errors.New("empty repo root")
+	}
+
+	srcPath := filepath.Join(gopath, "src")
+	localDirPath := filepath.Join(srcPath, root.Root, "..")
+	fullLocalPath := filepath.Join(srcPath, root.Root)
+
+	err = os.MkdirAll(localDirPath, 0700)
+	if err != nil {
+		return errors.Wrap(err, "mkdir all")
+	}
+
+	_, err = os.Stat(fullLocalPath)
+	switch {
+	case !os.IsNotExist(err) && err != nil:
+		return errors.Wrap(err, "stat")
+
+	case os.IsNotExist(err):
+		log.Printf("create %s", root.Repo)
+
+		err = root.VCS.Create(fullLocalPath, root.Repo)
+		if err != nil {
+			return errors.Wrap(err, "vcs create")
+		}
+
+	case err == nil:
+		log.Printf("update %s", root.Repo)
+
+		err = root.VCS.Download(fullLocalPath)
+		if err != nil {
+			return errors.Wrap(err, "vcs download")
+		}
+	}
+
+	err = root.VCS.TagSync(fullLocalPath, "")
+	if err != nil {
+		return errors.Wrap(err, "vcs tag sync")
+	}
+	return nil
+}
+
 func renderHandler(w http.ResponseWriter, req *http.Request) {
 	rl.Wait(1)
 
@@ -53,6 +105,12 @@ func renderHandler(w http.ResponseWriter, req *http.Request) {
 
 	search := req.URL.Query().Get("search")
 	plotLeaf := req.URL.Query().Get("leaf") == "true"
+
+	if err := downloadPackage(packagePath); err != nil {
+		log.Printf("%v", err)
+		hutil.WriteText(w, http.StatusInternalServerError, "unable to download package %s", packagePath)
+		return
+	}
 
 	factory := goimport.ParseRelation(packagePath, search, plotLeaf)
 	if factory == nil {
@@ -124,10 +182,15 @@ func envVar(key, def string) string {
 
 var (
 	flListenAddr = flag.String("l", envVar("LISTEN_ADDR", "localhost:3245"), "The listen address")
+	gopath       = os.Getenv("GOPATH")
 )
 
 func main() {
 	flag.Parse()
+
+	if gopath == "" {
+		log.Fatal("please set the GOPATH environment variable")
+	}
 
 	var chain hutil.Chain
 	chain.Use(hutil.NewLoggingMiddleware(nil))
