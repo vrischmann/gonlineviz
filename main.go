@@ -65,17 +65,13 @@ func goGet(ctx context.Context, packagePath string) error {
 	return nil
 }
 
-func getCachedPNG(packagePath string, withLeaf bool) (io.Reader, error) {
+func getCachedPNG(packagePath string, withLeaf bool) string {
 	filename := "dot.png"
 	if withLeaf {
 		filename = "dot_leaf.png"
 	}
 
-	f, err := os.Open(filepath.Join(cacheDir, packagePath, filename))
-	if err != nil {
-		return nil, errors.Wrap(err, "os open")
-	}
-	return f, nil
+	return filepath.Join(cacheDir, packagePath, filename)
 }
 
 func cachePNG(packagePath string, withLeaf bool, r io.Reader) (io.Reader, error) {
@@ -117,8 +113,9 @@ func renderHandler(w http.ResponseWriter, req *http.Request) {
 
 	search := req.URL.Query().Get("search")
 	withLeaf := req.URL.Query().Get("leaf") == "true"
+	nUpdate := needsUpdate(packagePath)
 
-	if needsUpdate(packagePath) {
+	if nUpdate {
 		if err := goGet(req.Context(), packagePath); err != nil {
 			log.Printf("%v", err)
 			hutil.WriteText(w, http.StatusInternalServerError, "unable to download package %s", packagePath)
@@ -126,14 +123,10 @@ func renderHandler(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	if search == "" && !withLeaf {
-		r, err := getCachedPNG(packagePath, withLeaf)
-		if err == nil {
-			w.Header().Set("Content-Type", "image/png")
-			w.WriteHeader(http.StatusOK)
-			io.Copy(w, r)
-			return
-		}
+	if !nUpdate && search == "" && !withLeaf {
+		name := getCachedPNG(packagePath, withLeaf)
+		http.ServeFile(w, req, name)
+		return
 	}
 
 	factory := goimport.ParseRelation(packagePath, search, withLeaf)
