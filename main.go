@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"flag"
 	"io"
 	"log"
@@ -18,10 +19,10 @@ import (
 	"github.com/vrischmann/hutil"
 )
 
-func dot(r io.Reader, w io.Writer) error {
+func dot(ctx context.Context, r io.Reader, w io.Writer) error {
 	var buf bytes.Buffer
 
-	cmd := exec.Command("dot", "-Tpng")
+	cmd := exec.CommandContext(ctx, "dot", "-Tpng")
 	cmd.Stdin = r
 	cmd.Stdout = w
 	cmd.Stderr = &buf
@@ -52,8 +53,8 @@ func needsUpdate(packagePath string) bool {
 	}
 }
 
-func goGet(packagePath string) error {
-	cmd := exec.Command(*flGoroot+"/bin/go", "get", "-u", packagePath)
+func goGet(ctx context.Context, packagePath string) error {
+	cmd := exec.CommandContext(ctx, *flGoroot+"/bin/go", "get", "-u", packagePath)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -108,7 +109,7 @@ func renderHandler(w http.ResponseWriter, req *http.Request) {
 	plotLeaf := req.URL.Query().Get("leaf") == "true"
 
 	if needsUpdate(packagePath) {
-		if err := goGet(packagePath); err != nil {
+		if err := goGet(req.Context(), packagePath); err != nil {
 			log.Printf("%v", err)
 			hutil.WriteText(w, http.StatusInternalServerError, "unable to download package %s", packagePath)
 			return
@@ -174,7 +175,7 @@ func renderHandler(w http.ResponseWriter, req *http.Request) {
 
 	var buf2 bytes.Buffer
 
-	err := dot(&buf, &buf2)
+	err := dot(req.Context(), &buf, &buf2)
 	if err != nil {
 		log.Printf("%s", err)
 		hutil.WriteText(w, http.StatusInternalServerError, "unable to call dot")
