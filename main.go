@@ -11,6 +11,7 @@ import (
 
 	"github.com/hirokidaichi/goviz/dotwriter"
 	"github.com/hirokidaichi/goviz/goimport"
+	"github.com/juju/ratelimit"
 	"github.com/pkg/errors"
 	"github.com/vrischmann/hutil"
 )
@@ -29,7 +30,13 @@ func dot(r io.Reader, w io.Writer) error {
 	return nil
 }
 
+var (
+	rl = ratelimit.NewBucketWithRate(10, 10)
+)
+
 func renderHandler(w http.ResponseWriter, req *http.Request) {
+	rl.Wait(1)
+
 	packagePath := req.URL.Path
 
 	if packagePath == "/" || packagePath == "" {
