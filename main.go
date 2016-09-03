@@ -2,9 +2,11 @@ package main
 
 import (
 	"bytes"
+	"flag"
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"os/exec"
 
 	"github.com/hirokidaichi/goviz/dotwriter"
@@ -106,9 +108,21 @@ func renderHandler(w http.ResponseWriter, req *http.Request) {
 	io.Copy(w, &buf2)
 }
 
+func envVar(key, def string) string {
+	if val := os.Getenv(key); val != "" {
+		return val
+	}
+	return def
+}
+
+var (
+	flListenAddr = flag.String("l", envVar("LISTEN_ADDR", "localhost:3245"), "The listen address")
+)
+
 func main() {
+	flag.Parse()
 	http.HandleFunc("/", renderHandler)
 
-	log.Println("listening on :3245")
-	http.ListenAndServe(":3245", nil)
+	log.Println("listening on %s", *flListenAddr)
+	http.ListenAndServe(*flListenAddr, nil)
 }
