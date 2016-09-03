@@ -51,11 +51,11 @@ Some basic examples:
 Some examples using `leaf=true`
 
   * [sarama](https://vrischmann.me/goviz/github.com/Shopify/sarama?leaf=true)
-  * [docker](https://vrischmann.me/goviz/github.com/docker/docker?depth=5&leaf=true)
+  * [gocql](https://vrischmann.me/goviz/github.com/gocql/gocql?depth=5&leaf=true)
 
 Some examples using `reversed`
 
-  * focusing on `golang.org/x/net/context` [docker](https://vrischmann.me/goviz/github.com/docker/docker?reversed=golang.org/x/net/context)
+  * focusing on `golang.org/x/net/context` in [gocql](https://vrischmann.me/goviz/github.com/gocql/gocql?reversed=golang.org/x/net/context)
 
 NOTE: the live demo is super slow to compile, and rate limited. Don't break it.
 
