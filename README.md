@@ -1,7 +1,7 @@
 gonlineviz
 ==========
 
-gonlineviz is a dependency graph visualization tool. It's basically [goviz](https://github.com/hirokidaichi/goviz) but which is available on a HTTP endpoint.
+gonlineviz is a dependency graph visualization tool. It's basically [goviz](https://github.com/hirokidaichi/goviz) but available on a HTTP endpoint.
 
 installation
 ===========
