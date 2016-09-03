@@ -9,8 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-
-	"golang.org/x/tools/go/vcs"
+	"time"
 
 	"github.com/hirokidaichi/goviz/dotwriter"
 	"github.com/hirokidaichi/goviz/goimport"
@@ -37,60 +36,63 @@ var (
 	rl = ratelimit.NewBucketWithRate(10, 10)
 )
 
-func downloadPackage(importPath string) error {
-	vcs.ShowCmd = true
+func needsUpdate(packagePath string) bool {
+	dir := filepath.Join(gopath, "src", packagePath)
+	st, err := os.Stat(dir)
 
-	root, err := vcs.RepoRootForImportPath(importPath, true)
-	if err != nil {
-		return errors.Wrap(err, "repo root for import path")
-	}
-	if root != nil && (root.Root == "" || root.Repo == "") {
-		return errors.New("empty repo root")
-	}
-
-	srcPath := filepath.Join(gopath, "src")
-	localDirPath := filepath.Join(srcPath, root.Root, "..")
-	fullLocalPath := filepath.Join(srcPath, root.Root)
-
-	err = os.MkdirAll(localDirPath, 0700)
-	if err != nil {
-		return errors.Wrap(err, "mkdir all")
-	}
-
-	_, err = os.Stat(fullLocalPath)
 	switch {
-	case !os.IsNotExist(err) && err != nil:
-		return errors.Wrap(err, "stat")
+	case err != nil:
+		return true
 
-	case os.IsNotExist(err):
-		log.Printf("create %s", root.Repo)
+	case time.Since(st.ModTime()) > 24*time.Hour:
+		return true
 
-		err = root.VCS.Create(fullLocalPath, root.Repo)
-		if err != nil {
-			return errors.Wrap(err, "vcs create")
-		}
-
-	case err == nil:
-		log.Printf("update %s", root.Repo)
-
-		err = root.VCS.Download(fullLocalPath)
-		if err != nil {
-			return errors.Wrap(err, "vcs download")
-		}
+	default:
+		return false
 	}
+}
 
-	err = root.VCS.TagSync(fullLocalPath, "")
-	if err != nil {
-		return errors.Wrap(err, "vcs tag sync")
+func goGet(packagePath string) error {
+	cmd := exec.Command(*flGoroot+"/bin/go", "get", "-u", packagePath)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return errors.Wrap(err, "go install run")
 	}
 	return nil
+}
+
+func getCachedPNG(packagePath string) (io.Reader, error) {
+	f, err := os.Open(filepath.Join(cacheDir, packagePath, "dot.png"))
+	if err != nil {
+		return nil, errors.Wrap(err, "os open")
+	}
+	return f, nil
+}
+
+func cachePNG(packagePath string, r io.Reader) (io.Reader, error) {
+	dir := filepath.Join(cacheDir, packagePath)
+	err := os.MkdirAll(dir, 0700)
+	if err != nil {
+		return nil, errors.Wrap(err, "os mkdirall")
+	}
+
+	f, err := os.Create(filepath.Join(dir, "dot.png"))
+	if err != nil {
+		return nil, errors.Wrap(err, "os create")
+	}
+
+	rd := io.TeeReader(r, f)
+
+	return rd, nil
 }
 
 func renderHandler(w http.ResponseWriter, req *http.Request) {
 	rl.Wait(1)
 
 	packagePath := req.URL.Path
-
 	if packagePath == "/" || packagePath == "" {
 		hutil.WriteBadRequest(w, "Bad Request")
 		return
@@ -100,16 +102,27 @@ func renderHandler(w http.ResponseWriter, req *http.Request) {
 		hutil.WriteText(w, http.StatusNotFound, "Not Found")
 		return
 	}
-
 	packagePath = packagePath[1:]
 
 	search := req.URL.Query().Get("search")
 	plotLeaf := req.URL.Query().Get("leaf") == "true"
 
-	if err := downloadPackage(packagePath); err != nil {
-		log.Printf("%v", err)
-		hutil.WriteText(w, http.StatusInternalServerError, "unable to download package %s", packagePath)
-		return
+	if needsUpdate(packagePath) {
+		if err := goGet(packagePath); err != nil {
+			log.Printf("%v", err)
+			hutil.WriteText(w, http.StatusInternalServerError, "unable to download package %s", packagePath)
+			return
+		}
+	}
+
+	if search == "" && !plotLeaf {
+		r, err := getCachedPNG(packagePath)
+		if err == nil {
+			w.Header().Set("Content-Type", "image/png")
+			w.WriteHeader(http.StatusOK)
+			io.Copy(w, r)
+			return
+		}
 	}
 
 	factory := goimport.ParseRelation(packagePath, search, plotLeaf)
@@ -170,7 +183,15 @@ func renderHandler(w http.ResponseWriter, req *http.Request) {
 
 	w.Header().Set("Content-Type", "image/png")
 	w.WriteHeader(http.StatusOK)
-	io.Copy(w, &buf2)
+
+	rd, err := cachePNG(packagePath, &buf2)
+	if err != nil {
+		log.Printf("%s", err)
+		hutil.WriteText(w, http.StatusInternalServerError, "unable to cache image")
+		return
+	}
+
+	io.Copy(w, rd)
 }
 
 func envVar(key, def string) string {
@@ -182,7 +203,9 @@ func envVar(key, def string) string {
 
 var (
 	flListenAddr = flag.String("l", envVar("LISTEN_ADDR", "localhost:3245"), "The listen address")
+	flGoroot     = flag.String("goroot", envVar("GOROOT", "/usr/local/go"), "The GOROOT variable")
 	gopath       = os.Getenv("GOPATH")
+	cacheDir     = filepath.Join(os.Getenv("HOME"), ".gonlineviz")
 )
 
 func main() {
@@ -190,6 +213,11 @@ func main() {
 
 	if gopath == "" {
 		log.Fatal("please set the GOPATH environment variable")
+	}
+
+	err := os.Mkdir(cacheDir, 0700)
+	if !os.IsExist(err) && err != nil {
+		log.Fatal(err)
 	}
 
 	var chain hutil.Chain
