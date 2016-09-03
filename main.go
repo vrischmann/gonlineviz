@@ -72,7 +72,19 @@ func getCachedPNG(packagePath string, withLeaf bool) string {
 		filename = "dot_leaf.png"
 	}
 
-	return filepath.Join(cacheDir, packagePath, filename)
+	path := filepath.Join(cacheDir, packagePath, filename)
+	_, err := os.Stat(path)
+	switch {
+	case os.IsNotExist(err):
+		return ""
+
+	case err != nil:
+		log.Printf("unable to stat cache file %q. err=%v", path, err)
+		return ""
+
+	default:
+		return path
+	}
 }
 
 func cachePNG(packagePath string, withLeaf bool, r io.Reader) (io.Reader, error) {
@@ -135,8 +147,10 @@ func renderHandler(w http.ResponseWriter, req *http.Request) {
 
 	if canUseCache {
 		name := getCachedPNG(packagePath, withLeaf)
-		http.ServeFile(w, req, name)
-		return
+		if name != "" {
+			http.ServeFile(w, req, name)
+			return
+		}
 	}
 
 	// can't use cache so regen the dot file
