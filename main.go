@@ -121,8 +121,13 @@ var (
 
 func main() {
 	flag.Parse()
-	http.HandleFunc("/", renderHandler)
 
-	log.Println("listening on %s", *flListenAddr)
-	http.ListenAndServe(*flListenAddr, nil)
+	var chain hutil.Chain
+	chain.Use(hutil.NewLoggingMiddleware(nil))
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", renderHandler)
+
+	log.Printf("listening on %s", *flListenAddr)
+	http.ListenAndServe(*flListenAddr, chain.Handler(mux))
 }
