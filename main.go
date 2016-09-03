@@ -32,7 +32,7 @@ func dot(r io.Reader, w io.Writer) error {
 func renderHandler(w http.ResponseWriter, req *http.Request) {
 	packagePath := req.URL.Path
 
-	if packagePath == "" {
+	if packagePath == "/" || packagePath == "" {
 		hutil.WriteBadRequest(w, "Bad Request")
 		return
 	}
