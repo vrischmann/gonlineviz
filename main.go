@@ -65,22 +65,32 @@ func goGet(ctx context.Context, packagePath string) error {
 	return nil
 }
 
-func getCachedPNG(packagePath string) (io.Reader, error) {
-	f, err := os.Open(filepath.Join(cacheDir, packagePath, "dot.png"))
+func getCachedPNG(packagePath string, withLeaf bool) (io.Reader, error) {
+	filename := "dot.png"
+	if withLeaf {
+		filename = "dot_leaf.png"
+	}
+
+	f, err := os.Open(filepath.Join(cacheDir, packagePath, filename))
 	if err != nil {
 		return nil, errors.Wrap(err, "os open")
 	}
 	return f, nil
 }
 
-func cachePNG(packagePath string, r io.Reader) (io.Reader, error) {
+func cachePNG(packagePath string, withLeaf bool, r io.Reader) (io.Reader, error) {
 	dir := filepath.Join(cacheDir, packagePath)
 	err := os.MkdirAll(dir, 0700)
 	if err != nil {
 		return nil, errors.Wrap(err, "os mkdirall")
 	}
 
-	f, err := os.Create(filepath.Join(dir, "dot.png"))
+	filename := "dot.png"
+	if withLeaf {
+		filename = "dot_leaf.png"
+	}
+
+	f, err := os.Create(filepath.Join(dir, filename))
 	if err != nil {
 		return nil, errors.Wrap(err, "os create")
 	}
@@ -106,7 +116,7 @@ func renderHandler(w http.ResponseWriter, req *http.Request) {
 	packagePath = packagePath[1:]
 
 	search := req.URL.Query().Get("search")
-	plotLeaf := req.URL.Query().Get("leaf") == "true"
+	withLeaf := req.URL.Query().Get("leaf") == "true"
 
 	if needsUpdate(packagePath) {
 		if err := goGet(req.Context(), packagePath); err != nil {
@@ -116,8 +126,8 @@ func renderHandler(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	if search == "" && !plotLeaf {
-		r, err := getCachedPNG(packagePath)
+	if search == "" && !withLeaf {
+		r, err := getCachedPNG(packagePath, withLeaf)
 		if err == nil {
 			w.Header().Set("Content-Type", "image/png")
 			w.WriteHeader(http.StatusOK)
@@ -126,7 +136,7 @@ func renderHandler(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	factory := goimport.ParseRelation(packagePath, search, plotLeaf)
+	factory := goimport.ParseRelation(packagePath, search, withLeaf)
 	if factory == nil {
 		err := errors.Errorf("no package %s", packagePath)
 		log.Printf("%v", err)
@@ -185,7 +195,7 @@ func renderHandler(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "image/png")
 	w.WriteHeader(http.StatusOK)
 
-	rd, err := cachePNG(packagePath, &buf2)
+	rd, err := cachePNG(packagePath, withLeaf, &buf2)
 	if err != nil {
 		log.Printf("%s", err)
 		hutil.WriteText(w, http.StatusInternalServerError, "unable to cache image")
