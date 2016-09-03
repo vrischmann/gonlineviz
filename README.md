@@ -63,3 +63,8 @@ thanks
 ======
 
 Thanks to [goviz](https://github.com/hirokidaichi/goviz) for the graph generation code.
+
+license
+=======
+
+MIT licensed, see the LICENSE file.
