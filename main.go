@@ -118,11 +118,13 @@ func renderHandler(w http.ResponseWriter, req *http.Request) {
 	if sDepth != "" {
 		depth, _ = strconv.Atoi(sDepth)
 	}
+	reversed := req.URL.Query().Get("reversed")
 	nUpdate := needsUpdate(packagePath)
 
-	canUseCache := depth == 128 && !nUpdate
-	isCacheable := depth == 128
+	canUseCache := depth == 128 && !nUpdate && reversed == ""
+	isCacheable := depth == 128 && reversed == ""
 
+	// maybe go get
 	if nUpdate {
 		if err := goGet(req.Context(), packagePath); err != nil {
 			log.Printf("%v", err)
@@ -137,6 +139,7 @@ func renderHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// can't use cache so regen the dot file
 	factory := goimport.ParseRelation(packagePath, "", withLeaf)
 	if factory == nil {
 		err := errors.Errorf("no package %s", packagePath)
@@ -157,8 +160,6 @@ func renderHandler(w http.ResponseWriter, req *http.Request) {
 
 	writer := dotwriter.New(&buf)
 	writer.MaxDepth = depth
-
-	reversed := req.URL.Query().Get("reversed")
 
 	switch {
 	case reversed == "":
@@ -193,17 +194,22 @@ func renderHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// now write the image
+
 	w.Header().Set("Content-Type", "image/png")
 	w.WriteHeader(http.StatusOK)
 
 	if isCacheable {
+		// we can cache the image
 		rd, err := cachePNG(packagePath, withLeaf, &buf2)
 		if err != nil {
 			log.Printf("%s", err)
 			hutil.WriteText(w, http.StatusInternalServerError, "unable to cache image")
 			return
 		}
+
 		io.Copy(w, rd)
+		return
 	}
 
 	io.Copy(w, &buf2)
