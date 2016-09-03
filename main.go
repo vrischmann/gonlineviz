@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/hirokidaichi/goviz/dotwriter"
@@ -111,9 +112,16 @@ func renderHandler(w http.ResponseWriter, req *http.Request) {
 	}
 	packagePath = packagePath[1:]
 
-	search := req.URL.Query().Get("search")
 	withLeaf := req.URL.Query().Get("leaf") == "true"
+	depth := 128
+	sDepth := req.URL.Query().Get("depth")
+	if sDepth != "" {
+		depth, _ = strconv.Atoi(sDepth)
+	}
 	nUpdate := needsUpdate(packagePath)
+
+	canUseCache := depth == 128 && !nUpdate
+	isCacheable := depth == 128
 
 	if nUpdate {
 		if err := goGet(req.Context(), packagePath); err != nil {
@@ -123,13 +131,13 @@ func renderHandler(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	if !nUpdate && search == "" && !withLeaf {
+	if canUseCache {
 		name := getCachedPNG(packagePath, withLeaf)
 		http.ServeFile(w, req, name)
 		return
 	}
 
-	factory := goimport.ParseRelation(packagePath, search, withLeaf)
+	factory := goimport.ParseRelation(packagePath, "", withLeaf)
 	if factory == nil {
 		err := errors.Errorf("no package %s", packagePath)
 		log.Printf("%v", err)
@@ -148,7 +156,7 @@ func renderHandler(w http.ResponseWriter, req *http.Request) {
 	var buf bytes.Buffer
 
 	writer := dotwriter.New(&buf)
-	writer.MaxDepth = 128
+	writer.MaxDepth = depth
 
 	reversed := req.URL.Query().Get("reversed")
 
@@ -188,14 +196,17 @@ func renderHandler(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "image/png")
 	w.WriteHeader(http.StatusOK)
 
-	rd, err := cachePNG(packagePath, withLeaf, &buf2)
-	if err != nil {
-		log.Printf("%s", err)
-		hutil.WriteText(w, http.StatusInternalServerError, "unable to cache image")
-		return
+	if isCacheable {
+		rd, err := cachePNG(packagePath, withLeaf, &buf2)
+		if err != nil {
+			log.Printf("%s", err)
+			hutil.WriteText(w, http.StatusInternalServerError, "unable to cache image")
+			return
+		}
+		io.Copy(w, rd)
 	}
 
-	io.Copy(w, rd)
+	io.Copy(w, &buf2)
 }
 
 func envVar(key, def string) string {
