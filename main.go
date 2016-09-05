@@ -114,7 +114,7 @@ func renderHandler(w http.ResponseWriter, req *http.Request) {
 
 	packagePath := req.URL.Path
 	if packagePath == "/" || packagePath == "" {
-		hutil.WriteBadRequest(w, "Bad Request")
+		hutil.WriteBadRequest(w, "please provide a valid package path")
 		return
 	}
 
