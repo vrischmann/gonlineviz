@@ -27,6 +27,7 @@ func dot(ctx context.Context, r io.Reader, w io.Writer) error {
 	cmd.Stdin = r
 	cmd.Stdout = w
 	cmd.Stderr = &buf
+	cmd.Env = []string{"PATH=/usr/bin:/bin"}
 
 	if err := cmd.Run(); err != nil {
 		return errors.Wrapf(err, "output: %s", buf.String())
