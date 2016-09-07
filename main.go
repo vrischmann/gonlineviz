@@ -60,6 +60,16 @@ func goGet(ctx context.Context, packagePath string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
+	cmd.Env = []string{
+		"PATH=/usr/bin:/bin",
+		"GOPATH=" + gopath,
+	}
+	if *flCGOEnabled {
+		cmd.Env = append(cmd.Env, "CGO_ENABLED=1")
+	} else {
+		cmd.Env = append(cmd.Env, "CGO_ENABLED=0")
+	}
+
 	if err := cmd.Run(); err != nil {
 		return errors.Wrap(err, "go install run")
 	}
@@ -236,9 +246,17 @@ func envVar(key, def string) string {
 	return def
 }
 
+func bEnvVar(key string, def bool) bool {
+	if val := os.Getenv(key); val != "" {
+		return val == "true" || val == "1"
+	}
+	return def
+}
+
 var (
 	flListenAddr = flag.String("l", envVar("LISTEN_ADDR", "localhost:3245"), "The listen address")
 	flGoroot     = flag.String("goroot", envVar("GOROOT", "/usr/local/go"), "The GOROOT variable")
+	flCGOEnabled = flag.Bool("cgo", bEnvVar("CGO_ENABLED", false), "Enable CGO")
 	gopath       = os.Getenv("GOPATH")
 	cacheDir     = filepath.Join(os.Getenv("HOME"), ".gonlineviz")
 )
