@@ -93,6 +93,9 @@ func getCachedPNG(packagePath string, withLeaf bool) string {
 	}
 
 	path := filepath.Join(cacheDir, packagePath, filename)
+
+	log.Printf("looking for cached image at %q", path)
+
 	_, err := os.Stat(path)
 	switch {
 	case os.IsNotExist(err):
@@ -119,7 +122,11 @@ func cachePNG(packagePath string, withLeaf bool, r io.Reader) (io.Reader, error)
 		filename = "dot_leaf.png"
 	}
 
-	f, err := os.Create(filepath.Join(dir, filename))
+	path := filepath.Join(dir, filename)
+
+	log.Printf("caching image for %s at %q", packagePath, path)
+
+	f, err := os.Create(path)
 	if err != nil {
 		return nil, errors.Wrap(err, "os create")
 	}
@@ -158,6 +165,7 @@ func renderHandler(w http.ResponseWriter, req *http.Request) {
 
 	// maybe go get
 	if nUpdate {
+		log.Printf("needs update, go get %s", packagePath)
 		if err := goGet(req.Context(), packagePath); err != nil {
 			log.Printf("%v", err)
 			hutil.WriteText(w, http.StatusInternalServerError, "unable to download package %s", packagePath)
@@ -166,6 +174,7 @@ func renderHandler(w http.ResponseWriter, req *http.Request) {
 	}
 
 	if canUseCache {
+		log.Printf("can use cache for %s", packagePath)
 		name := getCachedPNG(packagePath, withLeaf)
 		if name != "" {
 			http.ServeFile(w, req, name)
@@ -234,6 +243,7 @@ func renderHandler(w http.ResponseWriter, req *http.Request) {
 	w.WriteHeader(http.StatusOK)
 
 	if isCacheable {
+		log.Printf("generated image for %s is cacheable", packagePath)
 		// we can cache the image
 		rd, err := cachePNG(packagePath, withLeaf, &buf2)
 		if err != nil {
