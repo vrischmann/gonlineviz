@@ -41,8 +41,17 @@ var (
 
 func needsUpdate(packagePath string) bool {
 	dir := filepath.Join(gopath, "src", packagePath)
-	st, err := os.Stat(dir)
 
+	gitDir := filepath.Join(dir, ".git")
+
+	if _, err := os.Stat(gitDir); err == nil {
+		dir = gitDir
+	} else {
+		// TODO(vincent): implement checking for Mercurial repositories
+		return true
+	}
+
+	st, err := os.Stat(dir)
 	switch {
 	case err != nil:
 		return true
