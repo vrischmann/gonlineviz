@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"flag"
+	"go/build"
 	"io"
 	"log"
 	"net/http"
@@ -119,6 +120,71 @@ func downloadPackage(importPath string) error {
 	return nil
 }
 
+type params struct {
+	path     string
+	curDepth int
+	maxDepth int
+	tree     *goimport.ImportPath
+}
+
+var errGoroot = errors.New("goroot")
+
+func downloadAndBuildTree(p params) error {
+	if p.curDepth > p.maxDepth {
+		return nil
+	}
+
+	pkg, err := build.Import(p.path, "", 0)
+
+	switch {
+	case err == nil && pkg.Goroot:
+		return errGoroot
+
+	case err != nil:
+		if needsUpdate(p.path) {
+			if err := downloadPackage(p.path); err != nil {
+				return errors.Wrap(err, "download package")
+			}
+		}
+
+		pkg, err = build.Import(p.path, "", 0)
+		if err != nil {
+			return errors.Wrap(err, "build import")
+		}
+	}
+
+	for _, f := range pkg.GoFiles {
+		p.tree.Files = append(p.tree.Files, &goimport.Source{
+			FileName:  f,
+			Namespace: filepath.Base(p.path),
+		})
+	}
+
+	for _, dep := range pkg.Imports {
+		subTree := &goimport.ImportPath{
+			ImportPath: dep,
+			Files:      nil,
+		}
+
+		err := downloadAndBuildTree(params{
+			path:     dep,
+			curDepth: p.curDepth + 1,
+			maxDepth: p.maxDepth,
+			tree:     subTree,
+		})
+		switch {
+		case err == errGoroot:
+			continue
+		case err != nil:
+			return err
+		default:
+			p.tree.AddChild(subTree)
+		}
+	}
+
+	return nil
+}
+
 func getCachedPNG(packagePath string, withLeaf bool) string {
 	filename := "dot.png"
 	if withLeaf {
@@ -191,19 +257,23 @@ func renderHandler(w http.ResponseWriter, req *http.Request) {
 		depth, _ = strconv.Atoi(sDepth)
 	}
 	reversed := req.URL.Query().Get("reversed")
-	nUpdate := needsUpdate(packagePath)
 
-	canUseCache := depth == 128 && !nUpdate && reversed == ""
-	isCacheable := depth == 128 && reversed == ""
+	canUseCache := depth == 128 && reversed == ""
 
-	// maybe go get
-	if nUpdate {
-		log.Printf("needs update, go get %s", packagePath)
-		if err := downloadPackage(packagePath); err != nil {
-			log.Printf("%v", err)
-			hutil.WriteText(w, http.StatusInternalServerError, "unable to download package %s", packagePath)
-			return
-		}
+	depsTree := &goimport.ImportPath{
+		ImportPath: packagePath,
+	}
+
+	err := downloadAndBuildTree(params{
+		path:     packagePath,
+		curDepth: 0,
+		maxDepth: depth,
+		tree:     depsTree,
+	})
+	if err != nil {
+		log.Printf("%v", err)
+		hutil.WriteText(w, http.StatusInternalServerError, "unable to download package %s", packagePath)
+		return
 	}
 
 	if canUseCache {
@@ -239,32 +309,17 @@ func renderHandler(w http.ResponseWriter, req *http.Request) {
 
 	switch {
 	case reversed == "":
-		writer.PlotGraph(root)
+		writer.PlotGraph(depsTree)
 
 	default:
 		writer.Reversed = true
 
-		rroot := factory.Get(reversed)
-		if rroot == nil {
-			err := errors.Errorf("package %s does not exist", reversed)
-			log.Printf("%v", err)
-			hutil.WriteError(w, err)
-			return
-		}
-		if !rroot.HasFiles() {
-			err := errors.Errorf("package %s has no go files", reversed)
-			log.Printf("%v", err)
-			hutil.WriteError(w, err)
-			return
-		}
-
-		writer.PlotGraph(rroot)
+		// TODO(vincent): gen the reversed tree
 	}
 
 	var buf2 bytes.Buffer
 
-	err := dot(req.Context(), &buf, &buf2)
-	if err != nil {
+	if err := dot(req.Context(), &buf, &buf2); err != nil {
 		log.Printf("%s", err)
 		hutil.WriteText(w, http.StatusInternalServerError, "unable to call dot")
 		return
@@ -275,7 +330,7 @@ func renderHandler(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "image/png")
 	w.WriteHeader(http.StatusOK)
 
-	if isCacheable {
+	if canUseCache {
 		log.Printf("generated image for %s is cacheable", packagePath)
 		// we can cache the image
 		rd, err := cachePNG(packagePath, withLeaf, &buf2)
