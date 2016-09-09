@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"time"
 
+	"golang.org/x/tools/go/vcs"
+
 	"github.com/hirokidaichi/goviz/dotwriter"
 	"github.com/hirokidaichi/goviz/goimport"
 	"github.com/juju/ratelimit"
@@ -64,24 +66,55 @@ func needsUpdate(packagePath string) bool {
 	}
 }
 
-func goGet(ctx context.Context, packagePath string) error {
-	cmd := exec.CommandContext(ctx, *flGoroot+"/bin/go", "get", "-u", packagePath)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+func downloadPackage(importPath string) error {
+	vcs.ShowCmd = true
 
-	cmd.Env = []string{
-		"PATH=/usr/bin:/bin",
-		"GOPATH=" + gopath,
+	root, err := vcs.RepoRootForImportPath(importPath, true)
+	if err != nil {
+		return errors.Wrap(err, "repo root for import path")
 	}
-	if *flCGOEnabled {
-		cmd.Env = append(cmd.Env, "CGO_ENABLED=1")
-	} else {
-		cmd.Env = append(cmd.Env, "CGO_ENABLED=0")
+	if root != nil && (root.Root == "" || root.Repo == "") {
+		return errors.New("empty repo root")
 	}
 
-	if err := cmd.Run(); err != nil {
-		return errors.Wrap(err, "go install run")
+	if root.VCS.Name == "git" {
+		root.VCS.CreateCmd = "clone --depth=1 {repo} {dir}"
+	}
+
+	srcPath := filepath.Join(gopath, "src")
+	localDirPath := filepath.Join(srcPath, root.Root, "..")
+	fullLocalPath := filepath.Join(srcPath, root.Root)
+
+	err = os.MkdirAll(localDirPath, 0700)
+	if err != nil {
+		return errors.Wrap(err, "mkdir all")
+	}
+
+	_, err = os.Stat(fullLocalPath)
+	switch {
+	case !os.IsNotExist(err) && err != nil:
+		return errors.Wrap(err, "stat")
+
+	case os.IsNotExist(err):
+		log.Printf("create %s", root.Repo)
+
+		err = root.VCS.Create(fullLocalPath, root.Repo)
+		if err != nil {
+			return errors.Wrap(err, "vcs create")
+		}
+
+	case err == nil:
+		log.Printf("update %s", root.Repo)
+
+		err = root.VCS.Download(fullLocalPath)
+		if err != nil {
+			return errors.Wrap(err, "vcs download")
+		}
+	}
+
+	err = root.VCS.TagSync(fullLocalPath, "")
+	if err != nil {
+		return errors.Wrap(err, "vcs tag sync")
 	}
 	return nil
 }
@@ -166,7 +199,7 @@ func renderHandler(w http.ResponseWriter, req *http.Request) {
 	// maybe go get
 	if nUpdate {
 		log.Printf("needs update, go get %s", packagePath)
-		if err := goGet(req.Context(), packagePath); err != nil {
+		if err := downloadPackage(packagePath); err != nil {
 			log.Printf("%v", err)
 			hutil.WriteText(w, http.StatusInternalServerError, "unable to download package %s", packagePath)
 			return
