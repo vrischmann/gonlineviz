@@ -78,7 +78,7 @@ func downloadPackage(importPath string) error {
 		return errors.New("empty repo root")
 	}
 
-	if root.VCS.Name == "git" {
+	if root.VCS.Name == "Git" {
 		root.VCS.CreateCmd = "clone --depth=1 {repo} {dir}"
 	}
 
