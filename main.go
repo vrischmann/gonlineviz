@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"golang.org/x/tools/go/vcs"
@@ -78,8 +79,11 @@ func downloadPackage(importPath string) error {
 		return errors.New("empty repo root")
 	}
 
-	if root.VCS.Name == "Git" {
+	switch {
+	case root.VCS.Name == "Git" && !strings.HasPrefix(importPath, "gopkg.in"):
 		root.VCS.CreateCmd = "clone --depth=1 {repo} {dir}"
+	default:
+		root.VCS.CreateCmd = "clone {repo} {dir}"
 	}
 
 	srcPath := filepath.Join(gopath, "src")
