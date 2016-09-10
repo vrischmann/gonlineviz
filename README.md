@@ -31,13 +31,6 @@ There are two parameters:
   * `reversed`, a package path. If set, graph starting from this package.
   * `depth`, an int. If set, limit the graph depth.
 
-caveats
-=======
-
-For the graph generation to work, the packages must be present on disk AND compiled. This means this tool uses `go get` for each package it doesn't already have a recent version of.
-
-If you try to graph a big app or library, it will take quite some time to compile depending on your machine.
-
 live demo
 =========
 
