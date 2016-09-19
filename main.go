@@ -69,6 +69,10 @@ func needsUpdate(packagePath string) bool {
 }
 
 func downloadPackage(importPath string) error {
+	if importPath == "C" {
+		return nil
+	}
+
 	vcs.ShowCmd = true
 
 	root, err := vcs.RepoRootForImportPath(importPath, true)
