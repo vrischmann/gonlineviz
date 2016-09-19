@@ -138,7 +138,7 @@ type params struct {
 var errGoroot = errors.New("goroot")
 
 func downloadAndBuildTree(p params) error {
-	if p.curDepth > p.maxDepth {
+	if p.curDepth > p.maxDepth || p.path == "C" {
 		return nil
 	}
 
