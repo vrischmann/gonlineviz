@@ -137,12 +137,32 @@ type params struct {
 
 var errGoroot = errors.New("goroot")
 
+var pkgCache = make(map[string]*build.Package)
+
+func loadPackage(importPath string) (*build.Package, error) {
+	p, ok := pkgCache[importPath]
+	if ok {
+		return p, nil
+	}
+
+	log.Printf("not in cache, importing %q", importPath)
+
+	pkg, err := build.Import(importPath, "", 0)
+	if err != nil {
+		return nil, errors.Wrap(err, "build import")
+	}
+
+	pkgCache[importPath] = pkg
+
+	return pkg, nil
+}
+
 func downloadAndBuildTree(p params) error {
 	if p.curDepth > p.maxDepth || p.path == "C" {
 		return nil
 	}
 
-	pkg, err := build.Import(p.path, "", 0)
+	pkg, err := loadPackage(p.path)
 
 	switch {
 	case err == nil && pkg.Goroot:
